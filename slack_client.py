@@ -5,15 +5,19 @@ see https://slack.dev/python-slackclient/
 import os
 import slack
 import logging
+import re
 
 
 class SlackClient:
 
-    def __init__(self, oauth_token):
-        self.logger = self.config_logger('slack_client', 'slack_client.log')
+    def __init__(self, bot_name, oauth_token):
         self.token = oauth_token
+        self.bot_name = bot_name
+        self.bot_id = self.get_bot_id(bot_name)
+        self.logger = self.config_logger('slack_client', 'slack_client.log')
         self.rtm_client = slack.RTMClient(token=oauth_token)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
+        self.rtm_client.run_on(event='message')(self.handle_message)
 
     def config_logger(self, logger_name, log_file, log_level='INFO'):
         '''
@@ -22,8 +26,10 @@ class SlackClient:
 
         Parameters:
             logger_name --> name to apply to the logger instance
-            log_file --> name and extension of the file in which the log records will be written
-            log_level --> the level to set the logger instance (default is INFO)
+            log_file --> name and extension of the file in which the
+            log records will be written
+            log_level --> the level to set the logger instance
+            (default is INFO)
 
         Return:
             a logger instance
@@ -47,35 +53,67 @@ class SlackClient:
 
         return logger
 
-    def post_message(self, channel_name, message):
+    def get_bot_id(self, bot_name):
         '''
-        Post a message to a specific channel
+        queries Slack Web API to retrieve the bot's ID
 
         Parameters:
-            channel_name --> the name of the channel to post on
-            message --> the message to post
+            bot_name --> the name of the bot to look for
 
-        Return:
-            None
+        Returns:
+            string representing the bot ID
         '''
-        assert self.rtm_client._web_client is not None
-        self.rtm_client._web_client.chat_postMessage(
-            token=self.token,
-            channel='#{}'.format(channel_name),
-            text=message
-        )
+        users = slack.WebClient(token=self.token).users_list()
+        self.logger.debug('Connected to Web API to get Bot ID')
+        for user in users['members']:
+            if user.get('real_name', None) and user['real_name'] == bot_name:
+                self.logger.debug('Bot ID found')
+                return user['id']
 
     def handle_hello(self, **payload):
         '''
         The callback that fires when a 'hello' event is received from
         a successful RTMClient connection
         '''
-        self.logger.info('RTM Client has connected')
-        self.post_message('robs-test-channel', "I'm alive and online!")
+        self.logger.info('RTM Client has connected; "Hello" event recevied')
+        web_client = self.rtm_client._web_client
+        assert web_client is not None
+
+        # web_client.chat_postMessage(
+        #     token=self.token,
+        #     channel='robs-test-channel',
+        #     text='I\'m Alive!'
+        # )
+
+    def handle_message(self, **payload):
+        '''
+        callback method that fires when RTMClient recieves a 'message' event
+
+        Parameters:
+            payload --> message event payload
+
+        Return:
+            None
+        '''
+        self.logger.info('Message recieved from RTM Client.')
+        web_client = self.rtm_client._web_client
+        assert web_client is not None
+        data = payload['data']
+
+        if data.get('text', None):
+            bot_id_regex = f'<@{self.bot_id}>'
+            is_at_bot = re.search(bot_id_regex, data['text'])
+            if is_at_bot:
+                web_client.chat_postMessage(
+                    token=self.token,
+                    channel=data['channel'],
+                    text=('I can hear you, but this is all ' +
+                          'I have to say for now')
+                )
 
 
 def main():
-    slack_bot = SlackClient(os.environ['SLACK_TOKEN'])
+    slack_bot = SlackClient('RobsTweetBot', os.environ['SLACK_TOKEN'])
     slack_bot.rtm_client.start()
 
 
