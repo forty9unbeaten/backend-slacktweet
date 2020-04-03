@@ -28,31 +28,33 @@ exit_flag = False
 class SlackClient:
 
     def __init__(self, bot_name, oauth_token):
-        self.logger = self.config_logger('slack_client.log')
-        self.token = oauth_token
         self.bot_name = bot_name
-        self.start_time = datetime.datetime.now()
+        self.token = oauth_token
         self.current_channel = ''
+        self.start_time = datetime.datetime.now()
+        self.logger = self.config_logger('slack_client.log')
         self.bot_id = self.get_bot_id(bot_name)
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
         self.rtm_client.run_on(event='message')(self.handle_message)
         self.future = self.rtm_client.start()
-        print(self.future)
 
-    def run(self):
+    def check_channel_change(self, channel):
         '''
-        starts the event loop for the RTM Client
+        checks current channel and comapares channel attached to 'message'
+        event, changing current channel is necessary
+
+        Parameters:
+            channel --> channel attached to 'message' event
+
+        Returns:
+            None
         '''
-        try:
-            self.log_banner_start()
-            self.config_signal_handlers()
-            evt_loop = self.future.get_loop()
-            evt_loop.run_until_complete(self.future)
-        except asyncio.base_futures.CancelledError:
-            self.logger.error('CancelledError caught, event loop cancelled')
-        finally:
-            self.log_banner_stop()
+        if self.current_channel != channel:
+            self.logger.info(
+                ('message event recieved on different channel, ' +
+                 'changing channels'))
+            self.current_channel = channel
 
     def config_logger(self, log_file):
         '''
@@ -87,6 +89,23 @@ class SlackClient:
 
         return logger
 
+    def config_signal_handlers(self):
+        '''
+        Attach handler to various OS signals the program may recieve
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        signals = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
+        for sig in signals:
+            signal.signal(sig, self.os_signal_handler)
+            self.logger.debug(
+                f'{signal.Signals(sig).name} signal handler connected')
+        self.logger.info('All signal handlers connected')
+
     def get_bot_id(self, bot_name):
         '''
         queries Slack Web API to retrieve the bot's ID
@@ -104,6 +123,35 @@ class SlackClient:
                 self.logger.debug('Bot ID found')
                 return user['id']
 
+    async def handle_exit(self, client):
+        '''
+        sends a message to the appropriate Slack channel and closes the
+        RTM Client connection
+
+        Parameters:
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the 'exit' message
+
+        Return:
+            None
+        '''
+        messages = [
+            'Adios!',
+            'Until next time!',
+            'Take it easy!',
+            'Au revoir!',
+            'Later alligator!'
+        ]
+        rand_num = random.randint(0, len(messages) - 1)
+        self.logger.debug('Attempting to send exit message')
+        await client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            text=messages[rand_num]
+        )
+        self.logger.info('Exit message sent successfully')
+        self.future.cancel()
+
     def handle_hello(self, **payload):
         '''
         The callback that fires when a 'hello' event is received from
@@ -118,95 +166,6 @@ class SlackClient:
             channel='robs-test-channel',
             text='I\'m Alive!'
         )
-
-    def handle_message(self, **payload):
-        '''
-        callback method that fires when RTMClient recieves a 'message' event
-
-        Parameters:
-            payload --> message event payload
-
-        Return:
-            None
-        '''
-        self.logger.info('\'message\' event recieved from RTM Client.')
-        web_client = self.rtm_client._web_client
-        assert web_client is not None
-        data = payload['data']
-
-        # check that payload data contains text, meaning it is a message
-        if data.get('text', None):
-            self.logger.debug('Checking if message mentions bot')
-            bot_id_regex = f'<@{self.bot_id}>'
-            is_at_bot = re.search(bot_id_regex, data['text'])
-
-            if is_at_bot:
-                try:
-                    # message mentions bot and user expects a response
-                    self.logger.debug(
-                        ('Message mentions bot, looking for ' +
-                         'appropriate response'))
-                    self.check_channel_change(data['channel'])
-                    command = re.sub(bot_id_regex, '', data['text']).strip()
-
-                    if command == 'help':
-                        # 'help' command
-                        self.logger.info(
-                            'Help command recieved, sending help message')
-                        self.handle_help(
-                            web_client, ('Hi! Here\'s what' +
-                                         ' I can do...'))
-                    elif command == 'ping':
-                        # command to show uptime
-                        self.logger.info(
-                            'Ping command recieved, sending uptime report')
-                        self.handle_ping(web_client)
-
-                    elif command == 'exit' or command == 'quit':
-                        # command to exit program
-                        self.logger.info(
-                            'Exit command received, exiting and sending ' +
-                            'exit message')
-                        self.handle_exit(web_client)
-
-                    else:
-                        # unrecognized command
-                        self.logger.info(
-                            'Unrecognized command, showing help message')
-                        self.handle_unknown(web_client)
-
-                # Slack API exception handlers
-                except slack.errors.SlackApiError:
-                    self.logger.error(
-                        ('The response sent by Slack API was unexpected ' +
-                         'and raised a SlackAPIError'))
-                except slack.errors.SlackClientNotConnectedError:
-                    self.logger.error(
-                        ('The message sent was rejected because the ' +
-                         'SlackClient connection is closed. ' +
-                         'SlackClientNotConnectedError raised.'))
-                except slack.errors.SlackClientError:
-                    self.logger.error(
-                        ('There is a problem with the Slack WebClient ' +
-                         'attempting to call the API. ' +
-                         'SlackClientError raised.'))
-
-    def check_channel_change(self, channel):
-        '''
-        checks current channel and comapares channel attached to 'message'
-        event, changing current channel is necessary
-
-        Parameters:
-            channel --> channel attached to 'message' event
-
-        Returns:
-            None
-        '''
-        if self.current_channel != channel:
-            self.logger.info(
-                ('message event recieved on different channel, ' +
-                 'changing channels'))
-            self.current_channel = channel
 
     def handle_help(self, client, message):
         '''
@@ -255,57 +214,77 @@ class SlackClient:
         )
         self.logger.info('Help message sent')
 
-    def handle_exit(self, client):
+    async def handle_message(self, **payload):
         '''
-        sends a message to the appropriate Slack channel and closes the
-        RTM Client connection
+        callback method that fires when RTMClient recieves a 'message' event
 
         Parameters:
-            client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the 'exit' message
+            payload --> message event payload
 
         Return:
             None
         '''
-        messages = [
-            'Adios!',
-            'Until next time!',
-            'Take it easy!',
-            'Au revoir!',
-            'Later alligator!'
-        ]
-        rand_num = random.randint(0, len(messages) - 1)
-        self.logger.debug('Attempting to send exit message')
-        client.chat_postMessage(
-            token=self.token,
-            channel=self.current_channel,
-            text=messages[rand_num]
-        )
-        self.logger.info('Exit message sent successfully')
-        self.future.cancel()
+        self.logger.info('\'message\' event recieved from RTM Client.')
+        web_client = self.rtm_client._web_client
+        assert web_client is not None
+        data = payload['data']
 
-    def handle_unknown(self, client):
-        '''
-        sends a message to the appropriate Slack channel along with the 'help'
-        block when an unrecognized command is recieved from user
+        # check that payload data contains text, meaning it is a message
+        if data.get('text', None):
+            self.logger.debug('Checking if message mentions bot')
+            bot_id_regex = f'<@{self.bot_id}>'
+            is_at_bot = re.search(bot_id_regex, data['text'])
 
-        Parameters:
-            client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the message
+            if is_at_bot:
+                try:
+                    # message mentions bot and user expects a response
+                    self.logger.debug(
+                        ('Message mentions bot, looking for ' +
+                         'appropriate response'))
+                    self.check_channel_change(data['channel'])
+                    command = re.sub(bot_id_regex, '', data['text']).strip()
 
-        Return:
-            None
-        '''
-        comments = [
-            'You know I don\'t speak spanish...',
-            'Nobody knows what it means, but it\'s provocative',
-            'Aim for the bushes...',
-            'I\'m a peacock, you gotta let me fly!',
-            'Did I hear a \'niner\' in there?',
-            'Maybe there\'s some sort of a translation problem...'
-        ]
-        rand_num = random.randint(0, len(comments) - 1)
-        self.handle_help(client, comments[rand_num])
+                    if command == 'help':
+                        # 'help' command
+                        self.logger.info(
+                            'Help command recieved, sending help message')
+                        self.handle_help(
+                            web_client, ('Hi! Here\'s what' +
+                                         ' I can do...'))
+                    elif command == 'ping':
+                        # command to show uptime
+                        self.logger.info(
+                            'Ping command recieved, sending uptime report')
+                        self.handle_ping(web_client)
+
+                    elif command == 'exit' or command == 'quit':
+                        # command to exit program
+                        self.logger.info(
+                            'Exit command received, exiting and sending ' +
+                            'exit message')
+                        await self.handle_exit(web_client)
+
+                    else:
+                        # unrecognized command
+                        self.logger.info(
+                            'Unrecognized command, showing help message')
+                        self.handle_unknown(web_client)
+
+                # Slack API exception handlers
+                except slack.errors.SlackApiError:
+                    self.logger.error(
+                        ('The response sent by Slack API was unexpected ' +
+                         'and raised a SlackAPIError'))
+                except slack.errors.SlackClientNotConnectedError:
+                    self.logger.error(
+                        ('The message sent was rejected because the ' +
+                         'SlackClient connection is closed. ' +
+                         'SlackClientNotConnectedError raised.'))
+                except slack.errors.SlackClientError:
+                    self.logger.error(
+                        ('There is a problem with the Slack WebClient ' +
+                         'attempting to call the API. ' +
+                         'SlackClientError raised.'))
 
     def handle_ping(self, client):
         '''
@@ -353,37 +332,28 @@ class SlackClient:
         )
         self.logger.info('Total uptime message sent successfully')
 
-    def os_signal_handler(self, sig_num, frame):
+    def handle_unknown(self, client):
         '''
-        a handler for various OS signals.
+        sends a message to the appropriate Slack channel along with the 'help'
+        block when an unrecognized command is recieved from user
 
         Parameters:
-            sig_num --> the integer code of the signal recieved by the OS
-            frame --> unused
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the message
 
         Return:
             None
         '''
-        signal_recieved = signal.Signals(sig_num).name
-        self.logger.warning(f'Recieved {signal_recieved}')
-        self.future.cancel()
-
-    def config_signal_handlers(self):
-        '''
-        Attach handler to various OS signals the program may recieve
-
-        Parameters:
-            None
-
-        Return:
-            None
-        '''
-        signals = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
-        for sig in signals:
-            signal.signal(sig, self.os_signal_handler)
-            self.logger.debug(
-                f'{signal.Signals(sig).name} signal handler connected')
-        self.logger.info('All signal handlers connected')
+        comments = [
+            'You know I don\'t speak spanish...',
+            'Nobody knows what it means, but it\'s provocative',
+            'Aim for the bushes...',
+            'I\'m a peacock, you gotta let me fly!',
+            'Did I hear a \'niner\' in there?',
+            'Maybe there\'s some sort of a translation problem...'
+        ]
+        rand_num = random.randint(0, len(comments) - 1)
+        self.handle_help(client, comments[rand_num])
 
     def log_banner_start(self):
         '''
@@ -426,6 +396,35 @@ class SlackClient:
         print(
             f'\tslack_client.py bot is DEAD, because you killed it...\n'
         )
+
+    def os_signal_handler(self, sig_num, frame):
+        '''
+        a handler for various OS signals.
+
+        Parameters:
+            sig_num --> the integer code of the signal recieved by the OS
+            frame --> unused
+
+        Return:
+            None
+        '''
+        signal_recieved = signal.Signals(sig_num).name
+        self.logger.warning(f'Recieved {signal_recieved}')
+        self.future.cancel()
+
+    def run(self):
+        '''
+        starts the event loop for the RTM Client
+        '''
+        try:
+            self.log_banner_start()
+            self.config_signal_handlers()
+            evt_loop = self.future.get_loop()
+            evt_loop.run_until_complete(self.future)
+        except asyncio.base_futures.CancelledError:
+            self.logger.error('CancelledError caught, event loop cancelled')
+        finally:
+            self.log_banner_stop()
 
 
 def create_parser(args):
