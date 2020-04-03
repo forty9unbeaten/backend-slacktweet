@@ -12,33 +12,54 @@ import argparse
 import sys
 import dotenv
 import datetime
+import signal
+import textwrap
+import asyncio
 
 # exit program if not run in python3 environment
 if sys.version_info[0] < 3:
     print('\n\tThis is a Python 3 program...\n')
     sys.exit()
 
+# globals
+exit_flag = False
+
 
 class SlackClient:
 
     def __init__(self, bot_name, oauth_token):
-        self.logger = self.config_logger('slack_client', 'slack_client.log')
+        self.logger = self.config_logger('slack_client.log')
         self.token = oauth_token
         self.bot_name = bot_name
         self.start_time = datetime.datetime.now()
         self.current_channel = ''
         self.bot_id = self.get_bot_id(bot_name)
-        self.rtm_client = slack.RTMClient(token=oauth_token)
+        self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
         self.rtm_client.run_on(event='message')(self.handle_message)
+        self.future = self.rtm_client.start()
+        print(self.future)
 
-    def config_logger(self, logger_name, log_file):
+    def run(self):
+        '''
+        starts the event loop for the RTM Client
+        '''
+        try:
+            self.log_banner_start()
+            self.config_signal_handlers()
+            evt_loop = self.future.get_loop()
+            evt_loop.run_until_complete(self.future)
+        except asyncio.base_futures.CancelledError:
+            self.logger.error('CancelledError caught, event loop cancelled')
+        finally:
+            self.log_banner_stop()
+
+    def config_logger(self, log_file):
         '''
         Instantiates a logger that specifically logs information pertaining to
         a SlackClient instance
 
         Parameters:
-            logger_name --> name to apply to the logger instance
             log_file --> name and extension of the file in which the
             log records will be written
             log_level --> the level to set the logger instance
@@ -48,7 +69,7 @@ class SlackClient:
             a logger instance
 
         '''
-        logger = logging.getLogger(logger_name)
+        logger = logging.getLogger(os.environ['LOGGER_NAME'])
 
         # log formatting
         log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
@@ -261,8 +282,7 @@ class SlackClient:
             text=messages[rand_num]
         )
         self.logger.info('Exit message sent successfully')
-        self.rtm_client.stop()
-        self.logger.info('Closed RTM client connection')
+        self.future.cancel()
 
     def handle_unknown(self, client):
         '''
@@ -333,6 +353,80 @@ class SlackClient:
         )
         self.logger.info('Total uptime message sent successfully')
 
+    def os_signal_handler(self, sig_num, frame):
+        '''
+        a handler for various OS signals.
+
+        Parameters:
+            sig_num --> the integer code of the signal recieved by the OS
+            frame --> unused
+
+        Return:
+            None
+        '''
+        signal_recieved = signal.Signals(sig_num).name
+        self.logger.warning(f'Recieved {signal_recieved}')
+        self.future.cancel()
+
+    def config_signal_handlers(self):
+        '''
+        Attach handler to various OS signals the program may recieve
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        signals = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
+        for sig in signals:
+            signal.signal(sig, self.os_signal_handler)
+            self.logger.debug(
+                f'{signal.Signals(sig).name} signal handler connected')
+        self.logger.info('All signal handlers connected')
+
+    def log_banner_start(self):
+        '''
+        logs a start banner to the log file
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+
+        self.logger.info(textwrap.dedent(f'''
+        *********************************
+            slack_client.py started
+            Process ID: {os.getpid()}
+        *********************************
+        '''))
+        print(
+            f'\n\tslack_client.py bot is running with process ID: {os.getpid()}\n'
+        )
+
+    def log_banner_stop(self):
+        '''
+        logs a stop banner to the log file
+
+        Parameters:
+            start_time --> the start-time of the overall program
+
+        Return:
+            None
+        '''
+        uptime = datetime.datetime.now() - self.start_time
+        self.logger.info('RTM Client disconnected')
+        self.logger.info(textwrap.dedent(f'''
+        *********************************
+            slack_client.py stopped
+            Uptime: {uptime}
+        *********************************'''))
+        print(
+            f'\tslack_client.py bot is DEAD, because you killed it...\n'
+        )
+
 
 def create_parser(args):
     '''
@@ -365,12 +459,15 @@ def main(args):
     dotenv.load_dotenv('./.env')
     parser = create_parser(args)
     ns = parser.parse_args()
-    # set log level as environment variable
+
+    # set log level and logger name as environment variable
     log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
     os.environ['LOG_LVL'] = log_levels[int(ns.log_lvl)]
+    os.environ['LOGGER_NAME'] = 'slack_client'
 
+    # instantiate and run SlackClient
     slack_bot = SlackClient('RobsTweetBot', os.environ['SLACK_TOKEN'])
-    slack_bot.rtm_client.start()
+    slack_bot.run()
 
 
 if __name__ == '__main__':
