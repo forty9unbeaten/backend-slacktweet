@@ -26,6 +26,7 @@ class SlackClient:
         self.token = oauth_token
         self.bot_name = bot_name
         self.start_time = datetime.datetime.now()
+        self.current_channel = ''
         self.bot_id = self.get_bot_id(bot_name)
         self.rtm_client = slack.RTMClient(token=oauth_token)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
@@ -122,7 +123,9 @@ class SlackClient:
                 try:
                     # message mentions bot and user expects a response
                     self.logger.debug(
-                        'Message mentions bot, looking for appropriate response')
+                        ('Message mentions bot, looking for ' +
+                         'appropriate response'))
+                    self.check_channel_change(data['channel'])
                     command = re.sub(bot_id_regex, '', data['text']).strip()
 
                     if command == 'help':
@@ -130,26 +133,26 @@ class SlackClient:
                         self.logger.info(
                             'Help command recieved, sending help message')
                         self.handle_help(
-                            web_client, data['channel'], ('Hi! Here\'s what' +
-                                                          ' I can do...'))
+                            web_client, ('Hi! Here\'s what' +
+                                         ' I can do...'))
                     elif command == 'ping':
                         # command to show uptime
                         self.logger.info(
                             'Ping command recieved, sending uptime report')
-                        self.handle_ping(web_client, data['channel'])
+                        self.handle_ping(web_client)
 
                     elif command == 'exit' or command == 'quit':
                         # command to exit program
                         self.logger.info(
                             'Exit command received, exiting and sending ' +
                             'exit message')
-                        self.handle_exit(web_client, data['channel'])
+                        self.handle_exit(web_client)
 
                     else:
                         # unrecognized command
                         self.logger.info(
                             'Unrecognized command, showing help message')
-                        self.handle_unknown(web_client, data['channel'])
+                        self.handle_unknown(web_client)
 
                 # Slack API exception handlers
                 except slack.errors.SlackApiError:
@@ -167,13 +170,29 @@ class SlackClient:
                          'attempting to call the API. ' +
                          'SlackClientError raised.'))
 
-    def handle_help(self, client, channel, message):
+    def check_channel_change(self, channel):
+        '''
+        checks current channel and comapares channel attached to 'message'
+        event, changing current channel is necessary
+
+        Parameters:
+            channel --> channel attached to 'message' event
+
+        Returns:
+            None
+        '''
+        if self.current_channel != channel:
+            self.logger.info(
+                ('message event recieved on different channel, ' +
+                 'changing channels'))
+            self.current_channel = channel
+
+    def handle_help(self, client, message):
         '''
         posts a custom message followed by the help block
 
         Parameters:
             client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the message
             message --> the message to show above the help block
 
         Return:
@@ -182,7 +201,7 @@ class SlackClient:
         self.logger.debug('Attempting to send help message')
         client.chat_postMessage(
             token=self.token,
-            channel=channel,
+            channel=self.current_channel,
             blocks=[
                 {
                     "type": "section",
@@ -215,7 +234,7 @@ class SlackClient:
         )
         self.logger.info('Help message sent')
 
-    def handle_exit(self, client, channel):
+    def handle_exit(self, client):
         '''
         sends a message to the appropriate Slack channel and closes the
         RTM Client connection
@@ -238,14 +257,14 @@ class SlackClient:
         self.logger.debug('Attempting to send exit message')
         client.chat_postMessage(
             token=self.token,
-            channel=channel,
+            channel=self.current_channel,
             text=messages[rand_num]
         )
         self.logger.info('Exit message sent successfully')
         self.rtm_client.stop()
         self.logger.info('Closed RTM client connection')
 
-    def handle_unknown(self, client, channel):
+    def handle_unknown(self, client):
         '''
         sends a message to the appropriate Slack channel along with the 'help'
         block when an unrecognized command is recieved from user
@@ -266,9 +285,9 @@ class SlackClient:
             'Maybe there\'s some sort of a translation problem...'
         ]
         rand_num = random.randint(0, len(comments) - 1)
-        self.handle_help(client, channel, comments[rand_num])
+        self.handle_help(client, comments[rand_num])
 
-    def handle_ping(self, client, channel):
+    def handle_ping(self, client):
         '''
         sends a message to the appropriate Slack channel reporting
         total uptime of the bot when 'ping' command is recieved
@@ -291,7 +310,7 @@ class SlackClient:
         self.logger.debug('Attempting to send total uptime message')
         client.chat_postMessage(
             token=self.token,
-            channel=channel,
+            channel=self.current_channel,
             blocks=[
                 {
                     "type": "section",
