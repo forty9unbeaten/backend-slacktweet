@@ -4,12 +4,14 @@ see https://slack.dev/python-slackclient/
 """
 import os
 import slack
+import slack.errors
 import logging
 import re
 import random
 import argparse
 import sys
 import dotenv
+import datetime
 
 # exit program if not run in python3 environment
 if sys.version_info[0] < 3:
@@ -23,6 +25,7 @@ class SlackClient:
         self.logger = self.config_logger('slack_client', 'slack_client.log')
         self.token = oauth_token
         self.bot_name = bot_name
+        self.start_time = datetime.datetime.now()
         self.bot_id = self.get_bot_id(bot_name)
         self.rtm_client = slack.RTMClient(token=oauth_token)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
@@ -116,47 +119,61 @@ class SlackClient:
             is_at_bot = re.search(bot_id_regex, data['text'])
 
             if is_at_bot:
-                # message mentions bot and user expects a response
-                self.logger.debug(
-                    'Message mentions bot, looking for appropriate response')
-                command = re.sub(bot_id_regex, '', data['text']).strip()
+                try:
+                    # message mentions bot and user expects a response
+                    self.logger.debug(
+                        'Message mentions bot, looking for appropriate response')
+                    command = re.sub(bot_id_regex, '', data['text']).strip()
 
-                if command == 'help':
-                    # 'help' command
-                    self.logger.info(
-                        'Help command recieved, sending help message')
-                    self.send_help(
-                        web_client, data['channel'], ('Hi! Here\'s what' +
-                                                      ' I can do...'))
-                elif command == 'exit' or command == 'quit':
-                    self.logger.info(
-                        'Exit command received, exiting and sending ' +
-                        'exit message')
-                    self.handle_exit(web_client, data['channel'])
+                    if command == 'help':
+                        # 'help' command
+                        self.logger.info(
+                            'Help command recieved, sending help message')
+                        self.handle_help(
+                            web_client, data['channel'], ('Hi! Here\'s what' +
+                                                          ' I can do...'))
+                    elif command == 'ping':
+                        # command to show uptime
+                        self.logger.info(
+                            'Ping command recieved, sending uptime report')
+                        self.handle_ping(web_client, data['channel'])
 
-                else:
-                    # unrecognized command
-                    self.logger.info(
-                        'Unrecognized command, showing help message')
-                    comments = [
-                        'You know I don\'t speak spanish...',
-                        'Nobody knows what it means, but it\'s provocative',
-                        'Aim for the bushes...',
-                        'I\'m a peacock, you gotta let me fly!',
-                        'Did I hear a \'niner\' in there?',
-                        'Maybe there\'s some sort of a translation problem...'
-                    ]
-                    rand_num = random.randint(0, len(comments) - 1)
-                    self.send_help(
-                        web_client, data['channel'], comments[rand_num])
+                    elif command == 'exit' or command == 'quit':
+                        # command to exit program
+                        self.logger.info(
+                            'Exit command received, exiting and sending ' +
+                            'exit message')
+                        self.handle_exit(web_client, data['channel'])
 
-    def send_help(self, client, channel, message):
+                    else:
+                        # unrecognized command
+                        self.logger.info(
+                            'Unrecognized command, showing help message')
+                        self.handle_unknown(web_client, data['channel'])
+
+                # Slack API exception handlers
+                except slack.errors.SlackApiError:
+                    self.logger.error(
+                        ('The response sent by Slack API was unexpected ' +
+                         'and raised a SlackAPIError'))
+                except slack.errors.SlackClientNotConnectedError:
+                    self.logger.error(
+                        ('The message sent was rejected because the ' +
+                         'SlackClient connection is closed. ' +
+                         'SlackClientNotConnectedError raised.'))
+                except slack.errors.SlackClientError:
+                    self.logger.error(
+                        ('There is a problem with the Slack WebClient ' +
+                         'attempting to call the API. ' +
+                         'SlackClientError raised.'))
+
+    def handle_help(self, client, channel, message):
         '''
         posts a custom message followed by the help block
 
         Parameters:
-            client --> the Slack WebClient instance
-            channel --> the channel to post the message
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the message
             message --> the message to show above the help block
 
         Return:
@@ -204,8 +221,8 @@ class SlackClient:
         RTM Client connection
 
         Parameters:
-            client --> the Slack Web Client to call Slack Web API
-            channel --> the channel to send the 'exit' message
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the 'exit' message
 
         Return:
             None
@@ -227,6 +244,75 @@ class SlackClient:
         self.logger.info('Exit message sent successfully')
         self.rtm_client.stop()
         self.logger.info('Closed RTM client connection')
+
+    def handle_unknown(self, client, channel):
+        '''
+        sends a message to the appropriate Slack channel along with the 'help'
+        block when an unrecognized command is recieved from user
+
+        Parameters:
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the message
+
+        Return:
+            None
+        '''
+        comments = [
+            'You know I don\'t speak spanish...',
+            'Nobody knows what it means, but it\'s provocative',
+            'Aim for the bushes...',
+            'I\'m a peacock, you gotta let me fly!',
+            'Did I hear a \'niner\' in there?',
+            'Maybe there\'s some sort of a translation problem...'
+        ]
+        rand_num = random.randint(0, len(comments) - 1)
+        self.handle_help(client, channel, comments[rand_num])
+
+    def handle_ping(self, client, channel):
+        '''
+        sends a message to the appropriate Slack channel reporting
+        total uptime of the bot when 'ping' command is recieved
+
+        Parameters:
+            client --> the Slack WebClient to call Slack Web API
+            channel --> the channel to recieve the message
+
+        Return:
+            None
+        '''
+        messages = [
+            'Reporting for duty....',
+            'At your service...',
+            'Ask and you shall recieve...'
+        ]
+        rand_num = random.randint(0, len(messages) - 1)
+
+        total_uptime = datetime.datetime.now() - self.start_time
+        self.logger.debug('Attempting to send total uptime message')
+        client.chat_postMessage(
+            token=self.token,
+            channel=channel,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{messages[rand_num]}"
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```Total Uptime: {total_uptime}```"
+                    }
+                }
+            ]
+        )
+        self.logger.info('Total uptime message sent successfully')
 
 
 def create_parser(args):
