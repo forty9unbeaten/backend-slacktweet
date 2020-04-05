@@ -139,9 +139,9 @@ class SlackClient:
         for filt in filters:
             if filt not in self.filters:
                 self.filters.append(filt)
-                added_filters += 'filt\n'
+                added_filters += f'{filt}\n'
 
-        # sned confirmation to user
+        # send confirmation to user
         self.logger.debug(
             'attempting to send message to user confirming added filters')
         self.rtm_client._web_client.chat_postMessage(
@@ -162,7 +162,7 @@ class SlackClient:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ("```Added filters: " +
+                        "text": ("```Added filters:\n" +
                                  f"{added_filters}```")
                     }
                 }
@@ -207,14 +207,14 @@ class SlackClient:
         if len(filters) > 1:
             filters = ' '.join(filters).split(',')
             filters = [filt.strip() for filt in filters]
-        deleted_filters = []
+        deleted_filters = ''
         for filt in filters:
             if filt in self.filters:
                 self.filters.remove(filt)
-                deleted_filters.append(filt)
+                deleted_filters += f'{filt}\n'
         self.logger.debug(
             'Successfully deleted filters, attempting to send ' +
-            'confiirmation message')
+            'confirmation message')
         self.rtm_client._web_client.chat_postMessage(
             token=self.token,
             channel=self.current_channel,
@@ -233,8 +233,8 @@ class SlackClient:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ("```Deleted Filters: " +
-                                 f"{deleted_filters.join(' ')}```")
+                        "text": ("```Deleted Filters:\n" +
+                                 f"{deleted_filters}```")
 
                     }
                 }
@@ -444,6 +444,14 @@ class SlackClient:
                                 'Recieved list command, sending ' +
                                 'message containing list of current filters')
                             self.handle_list()
+
+                        elif command[0] == 'clear':
+                            # clear all filter commands
+                            self.logger.info(
+                                'Recieved clear command, clearing ' +
+                                'active filters'
+                            )
+                            self.handle_clear()
 
                         else:
                             # unrecognized command with one word
