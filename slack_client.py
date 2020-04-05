@@ -21,9 +21,6 @@ if sys.version_info[0] < 3:
     print('\n\tThis is a Python 3 program...\n')
     sys.exit()
 
-# globals
-exit_flag = False
-
 
 class SlackClient:
 
@@ -32,6 +29,7 @@ class SlackClient:
         self.token = oauth_token
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
+        self.filters = []
         self.logger = self.config_logger('slack_client.log')
         self.bot_id = self.get_bot_id(bot_name)
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
@@ -53,7 +51,7 @@ class SlackClient:
         if self.current_channel != channel:
             self.logger.info(
                 ('message event recieved on different channel, ' +
-                 'changing channels'))
+                 'changing Slack channels'))
             self.current_channel = channel
 
     def config_logger(self, log_file):
@@ -79,7 +77,7 @@ class SlackClient:
         log_date_format = '[%b %d, %Y] %H:%M:%S'
         formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
 
-        # stream an file handlers
+        # stream and file handlers
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -116,14 +114,135 @@ class SlackClient:
         Returns:
             string representing the bot ID
         '''
-        users = slack.WebClient(token=self.token).users_list()
+        bot_info = slack.WebClient(token=self.token).auth_test()
         self.logger.debug('Connected to Web API to get Bot ID')
-        for user in users['members']:
-            if user.get('real_name', None) and user['real_name'] == bot_name:
-                self.logger.debug('Bot ID found')
-                return user['id']
+        return bot_info['user_id']
 
-    async def handle_exit(self, client):
+    def handle_add(self, filters):
+        '''
+        adds a filter to the list of current filters.
+
+        Parameters:
+            filters --> list of new filters to apply
+
+        Return:
+            None
+        '''
+        self.logger.debug('adding new filters to current filters')
+        # parse filters seperated by commas
+        if len(filters) > 1:
+            filters = ' '.join(filters).split(',')
+            filters = [filt.strip() for filt in filters]
+
+        # add filters to current filters
+        added_filters = ''
+        for filt in filters:
+            if filt not in self.filters:
+                self.filters.append(filt)
+                added_filters += 'filt\n'
+
+        # sned confirmation to user
+        self.logger.debug(
+            'attempting to send message to user confirming added filters')
+        self.rtm_client._web_client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"I've added the following filters..."
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ("```Added filters: " +
+                                 f"{added_filters}```")
+                    }
+                }
+            ]
+        )
+        self.logger.info('Successfully sent \'add\' confirmation message')
+
+    def handle_clear(self):
+        '''
+        clears the list of current filters
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        self.logger.debug('Clearing list of current filters')
+        self.filters = []
+        self.logger.debug('All filters cleared, attempting to ' +
+                          'send confirmation message')
+
+        self.rtm_client._web_client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            text='All filters cleared'
+        )
+        self.logger.info(
+            'Successfuly cleared all filters and sent confirmation message')
+
+    def handle_del(self, filters):
+        '''
+        deletes filters from the current filters list
+
+        Parameters:
+            filters --> the filters to be deleted
+
+        Return:
+            None
+        '''
+        self.logger.debug('deleting specified filters')
+        if len(filters) > 1:
+            filters = ' '.join(filters).split(',')
+            filters = [filt.strip() for filt in filters]
+        deleted_filters = []
+        for filt in filters:
+            if filt in self.filters:
+                self.filters.remove(filt)
+                deleted_filters.append(filt)
+        self.logger.debug(
+            'Successfully deleted filters, attempting to send ' +
+            'confiirmation message')
+        self.rtm_client._web_client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "All good!"
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ("```Deleted Filters: " +
+                                 f"{deleted_filters.join(' ')}```")
+
+                    }
+                }
+            ]
+        )
+        self.logger.info('del confirmation message sent successfully')
+
+    async def handle_exit(self):
         '''
         sends a message to the appropriate Slack channel and closes the
         RTM Client connection
@@ -144,12 +263,14 @@ class SlackClient:
         ]
         rand_num = random.randint(0, len(messages) - 1)
         self.logger.debug('Attempting to send exit message')
-        await client.chat_postMessage(
+        await self.rtm_client._web_client.chat_postMessage(
             token=self.token,
             channel=self.current_channel,
             text=messages[rand_num]
         )
         self.logger.info('Exit message sent successfully')
+
+        # trigger RTMClient event loop cancellation
         self.future.cancel()
 
     def handle_hello(self, **payload):
@@ -167,7 +288,7 @@ class SlackClient:
             text='I\'m Alive!'
         )
 
-    def handle_help(self, client, message):
+    def handle_help(self, message):
         '''
         posts a custom message followed by the help block
 
@@ -179,7 +300,7 @@ class SlackClient:
             None
         '''
         self.logger.debug('Attempting to send help message')
-        client.chat_postMessage(
+        self.rtm_client._web_client.chat_postMessage(
             token=self.token,
             channel=self.current_channel,
             blocks=[
@@ -197,22 +318,72 @@ class SlackClient:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ("```Commands I understand:\n" +
+                        "text": ("```Commands I understand:\n\n" +
                                  "help -->\t\tShow this message\n" +
                                  "ping -->\t\tShow uptime of this bot\n" +
                                  "exit -->\t\tKill the bot\n" +
                                  "quit -->\t\tSame as 'exit'\n" +
                                  "list -->\t\tList current Twitter filters\n" +
-                                 "add  -->\t\tAdd some Twitter filters\n" +
-                                 "del  -->\t\tRemove some Twitter filters\n" +
-                                 "clear-->\t\tRemove all Twitter filters\n" +
-                                 "raise-->\t\tManual exception handler test```"
+                                 "clear-->\t\tClear all current filters" +
+                                 "\n\nMultiple argument commands. If adding " +
+                                 "or deleting multiple filters, seperate " +
+                                 "with commas\n\n" +
+                                 "add <filter> -->\t\tAdd some Twitter " +
+                                 "filters\n" +
+                                 "del <filter> -->\t\tRemove some Twitter " +
+                                 "filters\n```"
                                  )
                     }
                 }
             ]
         )
         self.logger.info('Help message sent')
+
+    def handle_list(self):
+        '''
+        list the active filters
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        # format list of filters for dispaly in confirmation message
+        self.logger.debug('Formatting list of filters')
+        filter_string = ''
+        for filt in self.filters:
+            filter_string += f'{filt}\n'
+
+        # send comfirmation message
+        self.logger.debug('Successfully formatted filters list. ' +
+                          'Attempting to send list command message')
+        self.rtm_client._web_client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Here you go..."
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ("```Active Filters: " +
+                                 f"{filter_string}```"
+                                 )
+                    }
+                }
+            ]
+        )
+        self.logger.info('Successfully sent list command message')
 
     async def handle_message(self, **payload):
         '''
@@ -242,33 +413,68 @@ class SlackClient:
                         ('Message mentions bot, looking for ' +
                          'appropriate response'))
                     self.check_channel_change(data['channel'])
-                    command = re.sub(bot_id_regex, '', data['text']).strip()
+                    command = re.sub(bot_id_regex, '',
+                                     data['text']).strip().split()
 
-                    if command == 'help':
-                        # 'help' command
-                        self.logger.info(
-                            'Help command recieved, sending help message')
-                        self.handle_help(
-                            web_client, ('Hi! Here\'s what' +
-                                         ' I can do...'))
-                    elif command == 'ping':
-                        # command to show uptime
-                        self.logger.info(
-                            'Ping command recieved, sending uptime report')
-                        self.handle_ping(web_client)
+                    if len(command) == 1:
+                        if command[0] == 'help':
+                            # 'help' command
+                            self.logger.info(
+                                'Help command recieved, sending help message')
+                            self.handle_help(
+                                ('Hi! Here\'s what' +
+                                 ' I can do...'))
 
-                    elif command == 'exit' or command == 'quit':
-                        # command to exit program
-                        self.logger.info(
-                            'Exit command received, exiting and sending ' +
-                            'exit message')
-                        await self.handle_exit(web_client)
+                        elif command[0] == 'ping':
+                            # command to show uptime
+                            self.logger.info(
+                                'Ping command recieved, sending uptime report')
+                            self.handle_ping()
+
+                        elif command[0] == 'exit' or command[0] == 'quit':
+                            # command to exit program
+                            self.logger.info(
+                                'Exit command received, exiting and sending ' +
+                                'exit message')
+                            await self.handle_exit()
+
+                        elif command[0] == 'list':
+                            # list command to show active filters
+                            self.logger.info(
+                                'Recieved list command, sending ' +
+                                'message containing list of current filters')
+                            self.handle_list()
+
+                        else:
+                            # unrecognized command with one word
+                            self.logger.info(
+                                'Unrecognized command, showing help message')
+                            self.handle_unknown()
+
+                    elif len(command) > 1:
+                        if command[0] == 'add':
+                            # command to add filter(s)
+                            self.logger.info(
+                                '\'add\' command recieved, adding filter ' +
+                                'and sending message')
+                            self.handle_add(command[1:])
+
+                        elif command[0] == 'del':
+                            # command to delete filter(s)
+                            self.logger.info('recieved delete command')
+                            self.handle_del(command[1:])
+
+                        else:
+                            # unrecognized command with more than one word
+                            self.logger.info(
+                                'Unrecognized command, showing help message')
+                            self.handle_unknown()
 
                     else:
                         # unrecognized command
                         self.logger.info(
-                            'Unrecognized command, showing help message')
-                        self.handle_unknown(web_client)
+                            'Unrecognized command, sending help message')
+                        self.handle_unknown()
 
                 # Slack API exception handlers
                 except slack.errors.SlackApiError:
@@ -286,7 +492,7 @@ class SlackClient:
                          'attempting to call the API. ' +
                          'SlackClientError raised.'))
 
-    def handle_ping(self, client):
+    def handle_ping(self):
         '''
         sends a message to the appropriate Slack channel reporting
         total uptime of the bot when 'ping' command is recieved
@@ -307,7 +513,7 @@ class SlackClient:
 
         total_uptime = datetime.datetime.now() - self.start_time
         self.logger.debug('Attempting to send total uptime message')
-        client.chat_postMessage(
+        self.rtm_client._web_client.chat_postMessage(
             token=self.token,
             channel=self.current_channel,
             blocks=[
@@ -332,7 +538,7 @@ class SlackClient:
         )
         self.logger.info('Total uptime message sent successfully')
 
-    def handle_unknown(self, client):
+    def handle_unknown(self):
         '''
         sends a message to the appropriate Slack channel along with the 'help'
         block when an unrecognized command is recieved from user
@@ -353,7 +559,7 @@ class SlackClient:
             'Maybe there\'s some sort of a translation problem...'
         ]
         rand_num = random.randint(0, len(comments) - 1)
-        self.handle_help(client, comments[rand_num])
+        self.handle_help(comments[rand_num])
 
     def log_banner_start(self):
         '''
@@ -373,7 +579,8 @@ class SlackClient:
         *********************************
         '''))
         print(
-            f'\n\tslack_client.py bot is running with process ID: {os.getpid()}\n'
+            '\n\tslack_client.py bot is running ' +
+            f'with process ID: {os.getpid()}\n'
         )
 
     def log_banner_stop(self):
