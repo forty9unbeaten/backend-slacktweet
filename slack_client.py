@@ -35,6 +35,7 @@ class SlackClient:
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
         self.rtm_client.run_on(event='message')(self.handle_message)
+        self.rtm_client.run_on(event='goodbye')(self.handle_goodbye)
         self.future = self.rtm_client.start()
 
     def check_channel_change(self, channel):
@@ -273,12 +274,29 @@ class SlackClient:
         # trigger RTMClient event loop cancellation
         self.future.cancel()
 
+    def handle_goodbye(self, **payload):
+        '''
+        callback that fires when the RTMClient recieves a 'goodbye'
+        event indiacating the server wants to close the connection
+
+        Parameters:
+            payload --> the payload sent by the server
+
+        Return:
+            None
+        '''
+        self.logger.info('Recieved \'goodbye\' event from server')
+        self.logger.debug(
+            'Attempting to reconnect to server and restart ' +
+            'RTMClient event loop')
+        self.handle_hello()
+
     def handle_hello(self, **payload):
         '''
         The callback that fires when a 'hello' event is received from
         a successful RTMClient connection
         '''
-        self.logger.info('RTM Client has connected; "Hello" event recevied')
+        self.logger.info('RTM Client has connected')
         web_client = self.rtm_client._web_client
         assert web_client is not None
 
@@ -446,7 +464,7 @@ class SlackClient:
                             self.handle_list()
 
                         elif command[0] == 'clear':
-                            # clear all filter commands
+                            # clear all filters command
                             self.logger.info(
                                 'Recieved clear command, clearing ' +
                                 'active filters'
