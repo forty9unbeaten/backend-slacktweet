@@ -30,7 +30,11 @@ class SlackClient:
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
         self.filters = []
+
+        # logger configuration and start
         self.logger = self.config_logger('slack_client.log')
+        self.log_banner_start()
+
         self.bot_id = self.get_bot_id(bot_name)
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
@@ -289,7 +293,7 @@ class SlackClient:
         self.logger.debug(
             'Attempting to reconnect to server and restart ' +
             'RTMClient event loop')
-        self.handle_hello()
+        self.run()
 
     def handle_hello(self, **payload):
         '''
@@ -650,7 +654,6 @@ class SlackClient:
         starts the event loop for the RTM Client
         '''
         try:
-            self.log_banner_start()
             self.config_signal_handlers()
             evt_loop = self.future.get_loop()
             evt_loop.run_until_complete(self.future)
