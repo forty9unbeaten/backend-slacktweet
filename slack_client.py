@@ -25,17 +25,19 @@ if sys.version_info[0] < 3:
 class SlackClient:
 
     def __init__(self, bot_name, oauth_token):
+        # logger configuration and start
+        self.logger = self.config_logger('slack_client.log')
+        self.log_banner_start()
+
+        # instance variable initialization
         self.bot_name = bot_name
+        self.bot_id = self.get_bot_id(bot_name)
         self.token = oauth_token
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
         self.filters = []
 
-        # logger configuration and start
-        self.logger = self.config_logger('slack_client.log')
-        self.log_banner_start()
-
-        self.bot_id = self.get_bot_id(bot_name)
+        # RTMClient instantiation and event handlers
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
         self.rtm_client.run_on(event='hello')(self.handle_hello)
         self.rtm_client.run_on(event='message')(self.handle_message)
