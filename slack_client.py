@@ -21,6 +21,9 @@ if sys.version_info[0] < 3:
     print('\n\tThis is a Python 3 program...\n')
     sys.exit()
 
+# load environment variables into module
+dotenv.load_dotenv('./.env')
+
 
 class SlackClient:
 
@@ -693,7 +696,6 @@ def create_parser(args):
 
 
 def main(args):
-    dotenv.load_dotenv('./.env')
     parser = create_parser(args)
     ns = parser.parse_args()
 
