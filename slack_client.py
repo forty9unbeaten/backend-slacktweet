@@ -79,7 +79,7 @@ class SlackClient:
             a logger instance
 
         '''
-        logger = logging.getLogger(os.environ['LOGGER_NAME'])
+        logger = logging.getLogger(os.environ['SLACK_LOGGER_NAME'])
 
         # log formatting
         log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
@@ -87,7 +87,7 @@ class SlackClient:
         log_date_format = '[%b %d, %Y] %H:%M:%S'
         formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
 
-        # stream and file handlers
+        # file handler configuration
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -641,9 +641,7 @@ class SlackClient:
             slack_client.py stopped
             Uptime: {uptime}
         *********************************'''))
-        print(
-            f'\tslack_client.py bot is DEAD, because you killed it...\n'
-        )
+        logging.shutdown()
 
     def os_signal_handler(self, sig_num, frame):
         '''
@@ -708,7 +706,7 @@ def main(args):
     # set log level and logger name as environment variable
     log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
     os.environ['LOG_LVL'] = log_levels[int(ns.log_lvl)]
-    os.environ['LOGGER_NAME'] = 'slack_client'
+    os.environ['SLACK_LOGGER_NAME'] = 'slack_client'
 
     # instantiate and run SlackClient
     slack_bot = SlackClient('RobsTweetBot', os.environ['SLACK_TOKEN'])
