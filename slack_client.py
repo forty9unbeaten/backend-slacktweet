@@ -31,8 +31,8 @@ class SlackClient:
 
         # instance variable initialization
         self.bot_name = bot_name
-        self.bot_id = self.get_bot_id(bot_name)
         self.token = oauth_token
+        self.bot_id = self.get_bot_id(bot_name)
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
         self.filters = []
@@ -159,7 +159,7 @@ class SlackClient:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"I've added the following filters..."
+                        "text": "I've added the following filters..."
                     }
                 },
                 {
@@ -343,18 +343,18 @@ class SlackClient:
                     "text": {
                         "type": "mrkdwn",
                         "text": ("```Commands I understand:\n\n" +
-                                 "help -->\t\tShow this message\n" +
-                                 "ping -->\t\tShow uptime of this bot\n" +
-                                 "exit -->\t\tKill the bot\n" +
-                                 "quit -->\t\tSame as 'exit'\n" +
-                                 "list -->\t\tList current Twitter filters\n" +
-                                 "clear-->\t\tClear all current filters" +
+                                 "help  -->\tShow this message\n" +
+                                 "ping  -->\tShow uptime of this bot\n" +
+                                 "exit  -->\tKill the bot\n" +
+                                 "quit  -->\tSame as 'exit'\n" +
+                                 "list  -->\tList current Twitter filters\n" +
+                                 "clear -->\tClear all current filters" +
                                  "\n\nMultiple argument commands. If adding " +
                                  "or deleting multiple filters, seperate " +
                                  "with commas\n\n" +
-                                 "add <filter> -->\t\tAdd some Twitter " +
+                                 "add <filter> -->\tAdd some Twitter " +
                                  "filters\n" +
-                                 "del <filter> -->\t\tRemove some Twitter " +
+                                 "del <filter> -->\tRemove some Twitter " +
                                  "filters\n```"
                                  )
                     }
@@ -400,7 +400,7 @@ class SlackClient:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ("```Active Filters: " +
+                        "text": ("```Active Filters:\n" +
                                  f"{filter_string}```"
                                  )
                     }
