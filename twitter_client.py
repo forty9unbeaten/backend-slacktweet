@@ -9,18 +9,18 @@ import datetime as dt
 import time
 import logging
 import tweepy
+import argparse
+import textwrap
 from dotenv import load_dotenv
 
 # Guard against python2
 if sys.version_info[0] < 3:
-    raise RuntimeError("Python 3 is required")
+    print('\n\tThis is a Python 3 program...\n')
+    sys.exit()
 
 # Bring all keys and tokens from .env file into environment
 load_dotenv()
 exit_flag = False
-
-# Create a local (module) logger instance
-# YOUR CODE HERE
 
 
 class TwitterClient(tweepy.StreamListener):
@@ -28,13 +28,66 @@ class TwitterClient(tweepy.StreamListener):
 
     def __init__(self, consumer_key, consumer_secret,
                  access_token, access_token_secret):
-        """Create a Tweepy API object using external tokens"""
+        """
+        Create a Tweepy API object using external tokens
+        """
+
+        # logger configuration and start
+        self.logger = self.config_logger('twitter_client.log')
+        self.log_start_banner()
+
+        # instance variables
+        self.start_time = dt.datetime.now()
+
+        # authentication
         auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
         auth.set_access_token(access_token, access_token_secret)
+
         # Creation of the twitter api client, using OAuth object.
         self.api = tweepy.API(auth)
         assert self.api is not None
         self.stream_handler = None
+
+    def config_logger(self, log_file):
+        logger = logging.getLogger(os.environ['TWITTER_LOGGER_NAME'])
+
+        # log formatting
+        log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
+                      ' %(lineno)d | %(message)s')
+        log_date_format = '[%b %d, %Y] %H:%M:%S'
+        formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
+
+        # file handler configuration
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        # set log level, defaults to 'INFO'
+        logger.setLevel(os.environ['LOG_LVL'])
+
+        return logger
+
+    def create_filtered_stream(self, track_list, retweets=False):
+        # YOUR CODE HERE
+        pass
+
+    def log_start_banner(self):
+        '''
+        logs a start banner to the log file
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+
+        self.logger.info(textwrap.dedent(f'''
+        *********************************
+            twitter_client.py started
+            Process ID: {os.getpid()}
+        *********************************
+        '''))
 
     def on_status(self, status):
         """Callback for receiving tweet messages"""
@@ -43,19 +96,39 @@ class TwitterClient(tweepy.StreamListener):
 
     def register_stream_handler(self, func=None):
         """This allows an external function to hook into the twitter stream"""
-        logger.info(f'Registering new stream handler: {func.__name__}')
+        self.logger.info(f'Registering new stream handler: {func.__name__}')
         self.stream_handler = func
 
-    def create_filtered_stream(self, track_list, retweets=False):
-        # YOUR CODE HERE
-        pass
+
+def create_parser(args):
+    '''
+    creates an argument parser that handles command-line arguments
+
+    Parameters:
+        args --> arguments included on command line
+
+    Return:
+        an ArgParser instance
+    '''
+    parser = argparse.ArgumentParser(
+        description=('A Slackbot that interacts with the user and' +
+                     ' serves as a filter for a Twitter stream'),
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        '-l', '-log',
+        help=('integer that sets the log level for program log output' +
+              '\n0: DEBUG\n1: INFO(DEFAULT)\n2: WARNING' +
+              '\n3: ERROR\n4: CRITICAL'),
+        default=1,
+        metavar='',
+        dest='log_lvl'
+    )
+    return parser
 
 
 def run_twitter_client(args):
     """This is for testing of standalone twitter client only"""
-
-    logger.info("Starting TwitterClient")
-    app_start = dt.now()
 
     # create a twitter client instance
     with TwitterClient(
@@ -65,9 +138,10 @@ def run_twitter_client(args):
         access_token_secret=os.environ['ACCESS_TOKEN_SECRET']
     ) as twit:
 
-        # In real life, this would be the SlackClient registering it's own stream handler
+        # In real life, this would be the SlackClient
+        # registering it's own stream handler
         def my_handler(status):
-            logger.info(status.text)
+            twit.logger.info(status.text)
             return (not exit_flag)
         twit.register_stream_handler(my_handler)
 
@@ -78,14 +152,14 @@ def run_twitter_client(args):
         # wait for OS exit
         try:
             while not exit_flag:
-                logger.debug('zzz ...')
+                twit.logger.debug('zzz ...')
                 time.sleep(1.0)
         except KeyboardInterrupt:
-            logger.warning('CTRL-C manual exit')
+            twit.logger.warning('CTRL-C manual exit')
 
-        uptime = dt.now() - app_start
+        uptime = dt.now() - twit.start_time
 
-    logger.warning(f'Shutdown completed, uptime: {uptime}')
+    twit.logger.warning(f'Shutdown completed, uptime: {uptime}')
     logging.shutdown()
 
 
