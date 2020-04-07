@@ -214,9 +214,12 @@ class SlackClient:
             None
         '''
         self.logger.debug('deleting specified filters')
+        # parse multiple filters to be deleted if necessary
         if len(filters) > 1:
             filters = ' '.join(filters).split(',')
             filters = [filt.strip() for filt in filters]
+
+        # delete filters if they are currently active filters
         deleted_filters = ''
         for filt in filters:
             if filt in self.filters:
@@ -225,6 +228,7 @@ class SlackClient:
         self.logger.debug(
             'Successfully deleted filters, attempting to send ' +
             'confirmation message')
+
         self.rtm_client._web_client.chat_postMessage(
             token=self.token,
             channel=self.current_channel,
@@ -379,8 +383,10 @@ class SlackClient:
         # format list of filters for dispaly in confirmation message
         self.logger.debug('Formatting list of filters')
         filter_string = ''
-        for filt in self.filters:
-            filter_string += f'{filt}\n'
+        if not self.filters:
+            filter_string = 'None'
+        else:
+            filter_string = '\n'.join([filt for filt in self.filters])
 
         # send comfirmation message
         self.logger.debug('Successfully formatted filters list. ' +
