@@ -39,7 +39,7 @@ def config_logger(log_file):
 
     # log formatting
     log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
-                  ' %(lineno)d | %(message)s')
+                  ' line: %(lineno)d | %(message)s')
     log_date_format = '[%b %d, %Y] %H:%M:%S'
     formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
 
