@@ -23,6 +23,37 @@ load_dotenv()
 exit_flag = False
 
 
+def config_logger(log_file):
+    '''
+    Instantiates a logger that specifically logs information pertaining to
+    a twitter_client.py module
+
+    Parameters:
+        log_file --> name and extension of the file in which the
+        log records will be written
+
+    Return:
+        a logger instance
+    '''
+    logger = logging.getLogger(__name__)
+
+    # log formatting
+    log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
+                  ' %(lineno)d | %(message)s')
+    log_date_format = '[%b %d, %Y] %H:%M:%S'
+    formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
+
+    # file handler configuration
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger
+
+
+logger = config_logger('twitter_client.log')
+
+
 class TwitterClient(tweepy.StreamListener):
     """Customized TwitterClient class"""
 
@@ -32,8 +63,7 @@ class TwitterClient(tweepy.StreamListener):
         Create a Tweepy API object using external tokens
         """
 
-        # logger configuration and start
-        self.logger = self.config_logger('twitter_client.log')
+        # logger start
         self.log_start_banner()
 
         # instance variables
@@ -48,30 +78,12 @@ class TwitterClient(tweepy.StreamListener):
         assert self.api is not None
         self.stream_handler = None
 
-    def config_logger(self, log_file):
-        logger = logging.getLogger(os.environ['TWITTER_LOGGER_NAME'])
-
-        # log formatting
-        log_format = ('%(asctime)s.%(msecs)d03 | %(name)s | %(levelname)s |' +
-                      ' %(lineno)d | %(message)s')
-        log_date_format = '[%b %d, %Y] %H:%M:%S'
-        formatter = logging.Formatter(fmt=log_format, datefmt=log_date_format)
-
-        # file handler configuration
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        # set log level, defaults to 'INFO'
-        logger.setLevel(os.environ['LOG_LVL'])
-
-        return logger
-
     def create_filtered_stream(self, track_list, retweets=False):
         # YOUR CODE HERE
         pass
 
-    def log_start_banner(self):
+    @staticmethod
+    def log_start_banner():
         '''
         logs a start banner to the log file
 
@@ -82,7 +94,7 @@ class TwitterClient(tweepy.StreamListener):
             None
         '''
 
-        self.logger.info(textwrap.dedent(f'''
+        logger.info(textwrap.dedent(f'''
         *********************************
             twitter_client.py started
             Process ID: {os.getpid()}
@@ -129,6 +141,12 @@ def create_parser(args):
 
 def run_twitter_client(args):
     """This is for testing of standalone twitter client only"""
+    parser = create_parser(args)
+    ns = parser.parse_args()
+
+    # set log level and logger name as environment variable
+    log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    logger.setLevel(log_levels[int(ns.log_lvl)])
 
     # create a twitter client instance
     with TwitterClient(
@@ -141,7 +159,7 @@ def run_twitter_client(args):
         # In real life, this would be the SlackClient
         # registering it's own stream handler
         def my_handler(status):
-            twit.logger.info(status.text)
+            logger.info(status.text)
             return (not exit_flag)
         twit.register_stream_handler(my_handler)
 
@@ -152,14 +170,14 @@ def run_twitter_client(args):
         # wait for OS exit
         try:
             while not exit_flag:
-                twit.logger.debug('zzz ...')
+                logger.debug('zzz ...')
                 time.sleep(1.0)
         except KeyboardInterrupt:
-            twit.logger.warning('CTRL-C manual exit')
+            logger.warning('CTRL-C manual exit')
 
         uptime = dt.now() - twit.start_time
 
-    twit.logger.warning(f'Shutdown completed, uptime: {uptime}')
+    logger.warning(f'Shutdown completed, uptime: {uptime}')
     logging.shutdown()
 
 
