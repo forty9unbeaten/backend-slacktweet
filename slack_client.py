@@ -16,6 +16,7 @@ import signal
 import textwrap
 import asyncio
 
+
 # exit program if not run in python3 environment
 if sys.version_info[0] < 3:
     print('\n\tThis is a Python 3 program...\n')
@@ -44,6 +45,7 @@ class SlackClient:
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
         self.filters = []
+        self.twitter_client = None
 
         # RTMClient instantiation and event handlers
         self.rtm_client = slack.RTMClient(token=oauth_token, run_async=True)
@@ -150,6 +152,7 @@ class SlackClient:
                 }
             ]
         )
+
         logger.info('Successfully sent \'add\' confirmation message')
 
     def handle_clear(self):
@@ -162,6 +165,7 @@ class SlackClient:
         Return:
             None
         '''
+
         logger.debug('Clearing list of current filters')
         self.filters = []
         logger.debug('All filters cleared, attempting to ' +
@@ -413,98 +417,87 @@ class SlackClient:
             is_at_bot = re.search(bot_id_regex, data['text'])
 
             if is_at_bot:
-                try:
-                    # message mentions bot and user expects a response
-                    logger.debug(
-                        ('Message mentions bot, looking for ' +
-                         'appropriate response'))
-                    self.check_channel_change(data['channel'])
-                    command = re.sub(bot_id_regex, '',
-                                     data['text']).strip().split()
+                # message mentions bot and user expects a response
+                logger.debug(
+                    ('Message mentions bot, looking for ' +
+                     'appropriate response'))
+                self.check_channel_change(data['channel'])
+                command = re.sub(bot_id_regex, '',
+                                 data['text']).strip().split()
 
-                    if len(command) == 1:
-                        if command[0] == 'help':
-                            # 'help' command
-                            logger.info(
-                                'Help command recieved, sending help message')
-                            self.handle_help(
-                                ('Hi! Here\'s what' +
-                                 ' I can do...'))
+                if len(command) == 1:
+                    if command[0] == 'help':
+                        # 'help' command
+                        logger.info(
+                            'Help command recieved, sending help message')
+                        self.handle_help(
+                            ('Hi! Here\'s what' +
+                             ' I can do...'))
 
-                        elif command[0] == 'ping':
-                            # command to show uptime
-                            logger.info(
-                                'Ping command recieved, sending uptime report')
-                            self.handle_ping()
+                    elif command[0] == 'ping':
+                        # command to show uptime
+                        logger.info(
+                            'Ping command recieved, sending uptime report')
+                        self.handle_ping()
 
-                        elif command[0] == 'exit' or command[0] == 'quit':
-                            # command to exit program
-                            logger.info(
-                                'Exit command received, exiting and sending ' +
-                                'exit message')
-                            await self.handle_exit()
+                    elif command[0] == 'exit' or command[0] == 'quit':
+                        # command to exit program
+                        logger.info(
+                            'Exit command received, exiting and sending ' +
+                            'exit message')
+                        await self.handle_exit()
 
-                        elif command[0] == 'list':
-                            # list command to show active filters
-                            logger.info(
-                                'Recieved list command, sending ' +
-                                'message containing list of current filters')
-                            self.handle_list()
+                    elif command[0] == 'list':
+                        # list command to show active filters
+                        logger.info(
+                            'Recieved list command, sending ' +
+                            'message containing list of current filters')
+                        self.handle_list()
 
-                        elif command[0] == 'clear':
-                            # clear all filters command
-                            logger.info(
-                                'Recieved clear command, clearing ' +
-                                'active filters'
-                            )
-                            self.handle_clear()
-
-                        else:
-                            # unrecognized command with one word
-                            logger.info(
-                                'Unrecognized command, showing help message')
-                            self.handle_unknown()
-
-                    elif len(command) > 1:
-                        if command[0] == 'add':
-                            # command to add filter(s)
-                            logger.info(
-                                '\'add\' command recieved, adding filter ' +
-                                'and sending message')
-                            self.handle_add(command[1:])
-
-                        elif command[0] == 'del':
-                            # command to delete filter(s)
-                            logger.info('recieved delete command')
-                            self.handle_del(command[1:])
-
-                        else:
-                            # unrecognized command with more than one word
-                            logger.info(
-                                'Unrecognized command, showing help message')
-                            self.handle_unknown()
+                    elif command[0] == 'clear':
+                        # clear all filters command
+                        logger.info(
+                            'Recieved clear command, clearing ' +
+                            'active filters'
+                        )
+                        self.handle_clear()
+                        self.twitter_client.create_filtered_stream(
+                            self.filters)
 
                     else:
-                        # unrecognized command
+                        # unrecognized command with one word
                         logger.info(
-                            'Unrecognized command, sending help message')
+                            'Unrecognized command, showing help message')
                         self.handle_unknown()
 
-                # Slack API exception handlers
-                except slack.errors.SlackApiError:
-                    logger.error(
-                        ('The response sent by Slack API was unexpected ' +
-                         'and raised a SlackAPIError'))
-                except slack.errors.SlackClientNotConnectedError:
-                    logger.error(
-                        ('The message sent was rejected because the ' +
-                         'SlackClient connection is closed. ' +
-                         'SlackClientNotConnectedError raised.'))
-                except slack.errors.SlackClientError:
-                    logger.error(
-                        ('There is a problem with the Slack WebClient ' +
-                         'attempting to call the API. ' +
-                         'SlackClientError raised.'))
+                elif len(command) > 1:
+                    if command[0] == 'add':
+                        # command to add filter(s)
+                        logger.info(
+                            '\'add\' command recieved, adding filter ' +
+                            'and sending message')
+                        self.handle_add(command[1:])
+                        self.twitter_client.create_filtered_stream(
+                            self.filters)
+
+                    elif command[0] == 'del':
+                        # command to delete filter(s)
+                        logger.info('recieved delete command')
+                        self.handle_del(command[1:])
+                        self.twitter_client.create_filtered_stream(
+                            self.filters)
+
+                    else:
+                        # unrecognized command with more than one word
+                        logger.info(
+                            'Unrecognized command, showing help message')
+                        self.handle_unknown()
+
+                else:
+                    # unrecognized command
+                    logger.info(
+                        'Unrecognized command, sending help message')
+                    self.handle_unknown()
 
     def handle_ping(self):
         '''
@@ -626,6 +619,20 @@ class SlackClient:
         logger.warning(f'Recieved {signal_recieved}')
         self.future.cancel()
 
+    def register_twitter_client(self, twitter_client):
+        '''
+        register a twitter client and connect it with a Slack client
+
+        Parameters:
+            twitter_client --> a twitter client instance
+
+        Return:
+            None
+        '''
+        self.twitter_client = twitter_client
+        twitter_client.register_stream_handler(self.tweet_handler)
+        logger.info('Twitter client connected to Slack client')
+
     def run(self):
         '''
         starts the event loop for the RTM Client
@@ -642,11 +649,44 @@ class SlackClient:
             evt_loop.run_until_complete(self.future)
         except asyncio.base_futures.CancelledError:
             logger.error('CancelledError caught, event loop cancelled')
+        # Slack API exception handlers
+        except slack.errors.SlackApiError:
+            logger.error(
+                ('The response sent by Slack API was unexpected ' +
+                 'and raised a SlackAPIError'))
+        except slack.errors.SlackClientNotConnectedError:
+            logger.error(
+                ('The message sent was rejected because the ' +
+                 'SlackClient connection is closed. ' +
+                 'SlackClientNotConnectedError raised.'))
+        except slack.errors.SlackClientError:
+            logger.error(
+                ('There is a problem with the Slack WebClient ' +
+                 'attempting to call the API. ' +
+                 'SlackClientError raised.'))
         finally:
             self.log_banner_stop()
 
+    def tweet_handler(self, tweet):
+        '''
+        handler that posts message to Slack channel
+        when tweet is recieved from stream
+
+        Parameters:
+            tweet --> the status object sent by Twitter API
+
+        Return:
+            None
+        '''
+        self.rtm_client._web_client.chat_postMessage(
+            token=self.token,
+            channel=self.current_channel,
+            text=tweet.text
+        )
 
 # configure and implement module level logging
+
+
 def config_logger(log_file):
     '''
     Instantiates a logger that specifically logs information pertaining to
