@@ -26,15 +26,21 @@ dotenv.load_dotenv('./.env')
 
 
 class SlackClient:
+    '''
+    connects to a Slack channel and interacts with another
+    user via various commands
 
-    def __init__(self, bot_name, oauth_token):
+    Arguments:
+        oauth_token --> authentication token issed by Slack API
+    '''
+
+    def __init__(self, oauth_token):
         # logger configuration and start
         self.log_banner_start()
 
         # instance variable initialization
-        self.bot_name = bot_name
         self.token = oauth_token
-        self.bot_id = self.get_bot_id(bot_name)
+        self.bot_id = self.get_bot_id()
         self.current_channel = ''
         self.start_time = datetime.datetime.now()
         self.filters = []
@@ -80,12 +86,12 @@ class SlackClient:
                 f'{signal.Signals(sig).name} signal handler connected')
         logger.info('All signal handlers connected')
 
-    def get_bot_id(self, bot_name):
+    def get_bot_id(self):
         '''
         queries Slack Web API to retrieve the bot's ID
 
         Parameters:
-            bot_name --> the name of the bot to look for
+            None
 
         Returns:
             string representing the bot ID
@@ -228,8 +234,7 @@ class SlackClient:
         RTM Client connection
 
         Parameters:
-            client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the 'exit' message
+            None
 
         Return:
             None
@@ -259,7 +264,7 @@ class SlackClient:
         event indiacating the server wants to close the connection
 
         Parameters:
-            payload --> the payload sent by the server
+            payload --> JSON payload sent by the server
 
         Return:
             None
@@ -274,6 +279,9 @@ class SlackClient:
         '''
         The callback that fires when a 'hello' event is received from
         a successful RTMClient connection
+
+        Parameters:
+            payload --> JSON payload sent by the server
         '''
         logger.info('RTM Client has connected')
         web_client = self.rtm_client._web_client
@@ -290,7 +298,6 @@ class SlackClient:
         posts a custom message followed by the help block
 
         Parameters:
-            client --> the Slack WebClient to call Slack Web API
             message --> the message to show above the help block
 
         Return:
@@ -389,7 +396,7 @@ class SlackClient:
         callback method that fires when RTMClient recieves a 'message' event
 
         Parameters:
-            payload --> message event payload
+            payload --> JSON payload sent by the server
 
         Return:
             None
@@ -505,8 +512,7 @@ class SlackClient:
         total uptime of the bot when 'ping' command is recieved
 
         Parameters:
-            client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the message
+            None
 
         Return:
             None
@@ -551,8 +557,7 @@ class SlackClient:
         block when an unrecognized command is recieved from user
 
         Parameters:
-            client --> the Slack WebClient to call Slack Web API
-            channel --> the channel to recieve the message
+            None
 
         Return:
             None
@@ -592,7 +597,7 @@ class SlackClient:
         logs a stop banner to the log file
 
         Parameters:
-            start_time --> the start-time of the overall program
+            None
 
         Return:
             None
@@ -624,6 +629,12 @@ class SlackClient:
     def run(self):
         '''
         starts the event loop for the RTM Client
+
+        Parameters:
+            None
+
+        Return:
+            None
         '''
         try:
             self.config_signal_handlers()
@@ -697,7 +708,16 @@ def create_parser(args):
     return parser
 
 
-def main(args):
+def run_slack_client(args):
+    '''
+    solely for testing standalone SlackClient instance
+
+    Parameters:
+        args --> arguments provided on command-line
+
+    Return:
+        None
+    '''
     parser = create_parser(args)
     ns = parser.parse_args()
 
@@ -706,9 +726,9 @@ def main(args):
     logger.setLevel(log_levels[int(ns.log_lvl)])
 
     # instantiate and run SlackClient
-    slack_bot = SlackClient('RobsTweetBot', os.environ['SLACK_TOKEN'])
+    slack_bot = SlackClient(os.environ['SLACK_TOKEN'])
     slack_bot.run()
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    run_slack_client(sys.argv[1:])
