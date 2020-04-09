@@ -179,6 +179,9 @@ def main(args):
             'command-line argument provided'
         )
 
+    # signal handler configuration
+    config_signal_handlers()
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
