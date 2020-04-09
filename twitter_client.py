@@ -116,6 +116,7 @@ class TwitterClient(tweepy.StreamListener):
         Return:
             None
         '''
+        # create the stream if it doesn't exist
         if not self.stream:
             self.stream = tweepy.Stream(
                 auth=self.api.auth,
@@ -123,10 +124,19 @@ class TwitterClient(tweepy.StreamListener):
                 daemon=True
             )
             logger.info(f'New stream created: {self.stream}')
+
+        # disconnect the stream to apply filters
+        self.stream.disconnect()
+
+        # filter tweets in accordance with filter list parameter
+        if filters:
             self.stream.filter(
                 track=filters,
                 is_async=True
             )
+            logger.info(f'Tweet steam subscribed to {filters}')
+        else:
+            logger.info('All filters empty. Stream disconnected')
 
     @staticmethod
     def log_start_banner():
