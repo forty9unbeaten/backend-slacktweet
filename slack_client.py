@@ -655,8 +655,6 @@ def config_logger(log_file):
     Parameters:
         log_file --> name and extension of the file in which the
         log records will be written
-        log_level --> the level to set the logger instance
-        (default is INFO)
 
     Return:
         a logger instance
