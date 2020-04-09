@@ -4,3 +4,4 @@
 venv/
 *.code-workspace
 *.log
+*pycache*
