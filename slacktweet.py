@@ -182,6 +182,27 @@ def main(args):
     # signal handler configuration
     config_signal_handlers()
 
+    # connect to Twitter Client
+    with TwitterClient(
+        consumer_key=os.environ['CONSUMER_KEY'],
+        consumer_secret=os.environ['CONSUMER_SECRET'],
+        access_token=os.environ['ACCESS_TOKEN'],
+        access_token_secret=os.environ['ACCESS_TOKEN_SECRET']
+    ) as twitter:
+        logger.info('Twitter client connected')
+
+        # connect to Slack
+        slack = SlackClient(oauth_token=os.environ['SLACK_TOKEN'])
+        logger.info('Slack client connected')
+
+        # connect Twitter Client to Slack Client to each other
+        slack.register_twitter_client(twitter)
+        logger.info('Slack and Twitter clients connected to each other')
+
+        slack.run()
+
+        log_banner_stop(start_time)
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
