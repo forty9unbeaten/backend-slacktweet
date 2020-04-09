@@ -77,10 +77,56 @@ class TwitterClient(tweepy.StreamListener):
         self.api = tweepy.API(auth)
         assert self.api is not None
         self.stream_handler = None
+        self.stream = None
 
-    def create_filtered_stream(self, track_list, retweets=False):
-        # YOUR CODE HERE
-        pass
+    def __enter__(self):
+        '''
+        allows class instance to be used as a a context manager
+
+        Parameters:
+            None
+
+        Return:
+            self
+        '''
+        logger.debug('TwitterClient instance entered as context manager')
+        return self
+
+    def __exit__(self, type, value, traceback):
+        '''
+        Allows TwitterClinet instance to be used a context manager
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        if self.stream is not None:
+            self.stream.disconnect()
+            logger.debug('TwitterClient instance exited as context manager')
+
+    def create_filtered_stream(self, filters):
+        '''
+        creates a tweet stream in accordance with any filters
+
+        Parameters:
+            filters --> the filters to apply to the tweet stream
+
+        Return:
+            None
+        '''
+        if not self.stream:
+            self.stream = tweepy.Stream(
+                auth=self.api.auth,
+                listener=self,
+                daemon=True
+            )
+            logger.info(f'New stream created: {self.stream}')
+            self.stream.filter(
+                track=filters,
+                is_async=True
+            )
 
     @staticmethod
     def log_start_banner():
@@ -101,14 +147,70 @@ class TwitterClient(tweepy.StreamListener):
         *********************************
         '''))
 
-    def on_status(self, status):
-        """Callback for receiving tweet messages"""
-        # YOUR CODE HERE
+    def log_stop_banner(self):
+        '''
+        logs a stop banner to the log file
+
+        Parameters:
+            None
+
+        Return:
+            None
+        '''
+        uptime = dt.datetime.now() - self.start_time
+        logger.info('TwitterClient stream disconnected')
+        logger.info(textwrap.dedent(f'''
+        *********************************
+            TwitterClient stopped
+            Uptime: {uptime}
+        *********************************'''))
+        logging.shutdown()
+
+    def on_error(self, status_code):
+        '''
+        handler that is triggered when error is returned by Twitter API
+        when trying to connect via stream
+
+        Parameters:
+            status_code --> the status code returned by Twitter API
+
+        Return:
+            None
+        '''
+        if status_code == 420:
+            logger.error(
+                'Reached maximum number of attempts to connect stream ' +
+                'to Twitter API. Automatically disconnecting')
+            return False
+        return super().on_error(status_code)
+
+    def on_status(self, tweet):
+        """
+        Callback for receiving tweet messages
+
+        Parameters:
+            tweet --> tweet object sent by Twitter API
+
+        Return:
+            result of the stream handler callback
+        """
+        if self.stream_handler is not None:
+            # filter out retweets
+            if not tweet._json.get('retweeted_status', None):
+                return self.stream_handler(tweet)
         return True
 
     def register_stream_handler(self, func=None):
-        """This allows an external function to hook into the twitter stream"""
-        self.logger.info(f'Registering new stream handler: {func.__name__}')
+        """
+        allows an external function to hook into the twitter stream
+
+        Parameters:
+            func --> the function to register as a stream handler callback
+
+        Return:
+            None
+        """
+        logger.info(f'Registering new stream handler: {func.__name__}')
         self.stream_handler = func
 
 
@@ -140,7 +242,9 @@ def create_parser(args):
 
 
 def run_twitter_client(args):
-    """This is for testing of standalone twitter client only"""
+    """
+    for testing of standalone twitter client only
+    """
     parser = create_parser(args)
     ns = parser.parse_args()
 
@@ -158,14 +262,14 @@ def run_twitter_client(args):
 
         # In real life, this would be the SlackClient
         # registering it's own stream handler
-        def my_handler(status):
-            logger.info(status.text)
+        def my_handler(tweet):
+            print(tweet.text)
             return (not exit_flag)
         twit.register_stream_handler(my_handler)
 
         # begin receiving messages
-        track_list = ['python']
-        twit.create_filtered_stream(track_list)
+        filters = ['python']
+        twit.create_filtered_stream(filters)
 
         # wait for OS exit
         try:
@@ -173,12 +277,7 @@ def run_twitter_client(args):
                 logger.debug('zzz ...')
                 time.sleep(1.0)
         except KeyboardInterrupt:
-            logger.warning('CTRL-C manual exit')
-
-        uptime = dt.now() - twit.start_time
-
-    logger.warning(f'Shutdown completed, uptime: {uptime}')
-    logging.shutdown()
+            twit.log_stop_banner()
 
 
 if __name__ == '__main__':
